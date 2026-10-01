@@ -24,3 +24,9 @@
 自动测试并未证明以下操作全部通过：HDMI / DP 物理拔插，屏幕 2 在上下左右且分别使用 100% / 125% / 150% / 175% / 200% 的实际 DPI，修改分辨率/缩放、休眠唤醒、锁屏解锁、Explorer 重启与托盘恢复、Windows 10 Acrylic / Blur 回退、Windows 登录自动启动。
 
 性能阈值（启动 <1 秒、切换 <50 ms、点击 <30 ms、SQLite 查询 <20 ms、内存 <150 MB）是待测目标，不是已经达到的结论。
+
+## 自启动与发布（2026-10-01）
+
+- 按用户请求，已启用本机当前用户的 Windows 登录自启动；Run 项指向实际存在的免安装程序，StartupApproved 无禁用覆盖。未通过注销、重启执行登录验收。
+- GitHub 发布账号经 API 核实为 gujiu502；公开仓库为 https://github.com/gujiu502/calendar-desktop-secretary 。安装包与免安装程序通过 v0.1.0 Release 分发。
+- 提交内容不包含运行时 SQLite、备份、环境文件、构建目录或原生设备证据 JSON。附件规格中的 Markdown 行末双空格为原有换行格式，保持不变。

@@ -21,3 +21,5 @@ Refinements from evidence: force per-monitor DPI context when querying native ge
 Remaining verification: physical disconnect/reconnect and alternate cable/layout/DPI matrices, Windows 10 effect fallback, OS login autostart, sleep/lock/Explorer restart, and broad performance targets. These need manual hardware/system QA; implementation is present, but this run does not prove every matrix entry.
 
 Deliverables: release installer + standalone executable, README.md, docs/EngineeringSpec.md, work/verification.md, browser screenshots and native evidence JSON. Test-created daily notes were deleted after native checks.
+
+Publication checkpoint: current-user Run registration and StartupApproved state checked; source pushed to public gujiu502/calendar-desktop-secretary. Version v0.1.0 distributes the existing validated Windows builds; personal runtime data and native device evidence remain excluded.
