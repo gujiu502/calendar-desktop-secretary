@@ -46,6 +46,8 @@ try {
   assert.equal(await page.getByLabel('结束日期',{exact:true}).inputValue(),endDate);
   await page.keyboard.press('Escape');
   const backup=await invoke('backup_data');assert.ok(backup.endsWith('.sqlite'));
+  assert.ok(backup.includes('日签'), 'Database and backups use the Documents app folder');
+  if (process.env.CALENDAR_EXPECTED_DATA_FOLDER) assert.ok(backup.startsWith(process.env.CALENDAR_EXPECTED_DATA_FOLDER));
   await page.getByRole('button',{name:'新建日签',exact:true}).click();
   assert.equal(await page.getByLabel('开始日期',{exact:true}).inputValue(),date);
   await page.getByLabel('标题',{exact:true}).fill('UI 到 Rust 到 SQLite');
@@ -56,6 +58,7 @@ try {
   await page.screenshot({path:'work/screenshots/native.png'});
   const geometry=await page.evaluate(()=>({width:innerWidth,height:innerHeight,scrollHeight:document.documentElement.scrollHeight,scrollWidth:document.documentElement.scrollWidth,devicePixelRatio,screenX,screenY}));
   assert.equal(geometry.scrollWidth,geometry.width);
+  assert.equal(geometry.scrollHeight,geometry.height, 'Calendar and Upcoming scroll inside the desktop viewport');
   await page.getByRole('button',{name:'关闭窗口',exact:true}).click();
   await page.waitForFunction(async()=>!(await window.__TAURI_INTERNALS__.invoke('plugin:window|is_visible',{label:'main'})));
   const executable=process.argv[2];
@@ -65,7 +68,7 @@ try {
     await page.waitForFunction(()=>window.__TAURI_INTERNALS__.invoke('plugin:window|is_visible',{label:'main'}));
   }
   assert.deepEqual(errors,[]);
-  const report={result:'PASS',monitors,geometry,backup,checks:['native IPC validation','SQLite CRUD','inclusive end date query/edit/persistence','continuous translucency configuration','reload persistence','Upcoming completion filter','UI→Rust→SQLite','online backup','close to tray',...(executable?['single-instance reopen']:[])]};
+  const report={result:'PASS',monitors,geometry,backup,checks:['native IPC validation','SQLite CRUD','inclusive end date query/edit/persistence','continuous translucency configuration','reload persistence','Upcoming completion filter','UI→Rust→SQLite','Documents automatic storage','online backup','close to tray',...(executable?['single-instance reopen']:[])]};
   await writeFile('work/native-smoke.json',JSON.stringify(report,null,2));
   console.log(JSON.stringify(report));
 } finally {

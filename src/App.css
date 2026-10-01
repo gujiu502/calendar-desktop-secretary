@@ -16,6 +16,14 @@ button:hover:not(:disabled) { filter: brightness(1.13); }
 button, input, select { transition: background-color 120ms, border-color 120ms; }
 h1, h2, h3, p { margin: 0; }
 .app-shell { border: 1px solid rgba(255,255,255,.15); border-radius: var(--corner); background: rgba(24,31,35,var(--panel-opacity)); overflow: hidden; min-height: 100vh; display: flex; flex-direction: column; }
+.desktop { height: 100vh; min-height: 0; }
+.desktop .titlebar, .desktop .statusbar { flex-shrink: 0; }
+.desktop .workspace { min-height: 0; overflow: hidden; }
+.desktop .calendar-main { overflow-y: auto; }
+.desktop .upcoming-panel, .desktop .upcoming-list { min-height: 0; }
+.desktop .upcoming-list { overflow-y: auto; }
+.desktop .upcoming-heading, .desktop .upcoming-caption, .desktop .quiet-card { flex-shrink: 0; }
+.desktop .calendar-main, .desktop .upcoming-list { scrollbar-width: thin; scrollbar-color: #67777955 transparent; }
 .preview { max-width: 1200px; min-height: 820px; margin: 38px auto; box-shadow: 0 32px 90px #0006; }
 body:has(.preview) { background: radial-gradient(ellipse at 8% 4%,#526663,transparent 52%),radial-gradient(ellipse at 100% 85%,#343f51,transparent 65%),#202d32; padding: 0 28px; }
 .titlebar { display: flex; justify-content: space-between; align-items: center; min-height: 56px; padding: 0 16px 0 28px; border-bottom: 1px solid var(--border); user-select: none; }

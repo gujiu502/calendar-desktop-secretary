@@ -1,4 +1,4 @@
-param([string]$Executable = (Join-Path $PSScriptRoot '..\src-tauri\target\x86_64-pc-windows-msvc\release\calendar-desktop-secretary.exe'))
+﻿param([string]$Executable = (Join-Path $PSScriptRoot '..\src-tauri\target\x86_64-pc-windows-msvc\release\calendar-desktop-secretary.exe'))
 $ErrorActionPreference = 'Stop'
 $Executable = [IO.Path]::GetFullPath($Executable)
 Add-Type @'
@@ -16,6 +16,8 @@ public static class CalendarWindowProbe {
 '@
 $previousDpi = [CalendarWindowProbe]::SetThreadDpiAwarenessContext([IntPtr](-4))
 $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9223'
+$previousExpectedFolder = $env:CALENDAR_EXPECTED_DATA_FOLDER
+$env:CALENDAR_EXPECTED_DATA_FOLDER = Join-Path ([Environment]::GetFolderPath('MyDocuments')) '日签'
 $probeProcess = Start-Process -FilePath $Executable -WindowStyle Hidden -PassThru
 $probeClock = [Diagnostics.Stopwatch]::StartNew()
 $script:firstWindow = $null
@@ -50,4 +52,5 @@ try {
   if (-not $probeProcess.HasExited) { Stop-Process -Id $probeProcess.Id }
   [void][CalendarWindowProbe]::SetThreadDpiAwarenessContext($previousDpi)
   Remove-Item Env:\WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS -ErrorAction SilentlyContinue
+  $env:CALENDAR_EXPECTED_DATA_FOLDER = $previousExpectedFolder
 }

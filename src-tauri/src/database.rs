@@ -110,6 +110,32 @@ fn read_note(row: &rusqlite::Row<'_>) -> rusqlite::Result<DailyNote> {
 const SELECT: &str = "SELECT id,date,time,title,content,category,priority,completed,created_at,updated_at,end_date FROM daily_notes";
 
 impl Database {
+    pub fn open_documents(documents: PathBuf, legacy_folder: &Path) -> Result<Self> {
+        let folder = documents.join("日签");
+        fs::create_dir_all(&folder).map_err(|e| format!("无法创建文档中的日签目录：{e}"))?;
+        let destination = folder.join("database.sqlite");
+        let legacy = legacy_folder.join("database.sqlite");
+        // Never replace a Documents database. Keep the original AppData copy intact.
+        if !destination.exists() && legacy.exists() {
+            let source =
+                Connection::open_with_flags(&legacy, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+                    .map_err(|e| e.to_string())?;
+            source
+                .busy_timeout(std::time::Duration::from_secs(5))
+                .map_err(|e| e.to_string())?;
+            let snapshot = folder.join(format!(".cds-migrate-{}.tmp", uuid::Uuid::new_v4()));
+            let result = source
+                .backup("main", &snapshot, None)
+                .map_err(|e| e.to_string())
+                .and_then(|_| crate::files::publish(&snapshot, &destination));
+            if let Err(error) = result {
+                let _ = fs::remove_file(&snapshot);
+                return Err(format!("迁移日签到文档失败，原数据已保留：{error}"));
+            }
+        }
+        Self::open(folder)
+    }
+
     pub fn open(folder: PathBuf) -> Result<Self> {
         fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
         let conn = Connection::open(folder.join("database.sqlite")).map_err(|e| e.to_string())?;
@@ -467,6 +493,52 @@ mod tests {
             Some("2026-10-02")
         );
         drop(reopened);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn documents_storage_migrates_wal_and_keeps_existing_database() {
+        let root = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
+        let legacy_folder = root.join("legacy");
+        let legacy = Database::open(legacy_folder.clone()).unwrap();
+        let mut entry = input("2026-10-01", None, 0);
+        entry.end_date = Some("2026-10-03".into());
+        let id = legacy.save(entry).unwrap();
+        legacy
+            .put_preference("settings", &crate::settings::Settings::default())
+            .unwrap();
+        let documents = root.join("Documents");
+        let migrated = Database::open_documents(documents.clone(), &legacy_folder).unwrap();
+        assert_eq!(migrated.folder, documents.join("日签"));
+        assert_eq!(migrated.list("2026-10-03", "2026-10-03").unwrap()[0].id, id);
+        assert_eq!(
+            migrated
+                .get_preference::<crate::settings::Settings>("settings")
+                .unwrap()
+                .preferred_display,
+            "display2"
+        );
+        assert!(migrated
+            .backup()
+            .unwrap()
+            .starts_with(documents.join("日签")));
+        migrated.complete(&id, true).unwrap();
+        drop(migrated);
+        // Reopening must use Documents, including its subsequent edits and new notes.
+        legacy.save(input("2026-10-04", None, 0)).unwrap();
+        let reopened = Database::open_documents(documents.clone(), &legacy_folder).unwrap();
+        assert!(reopened.list("2026-10-01", "2026-10-01").unwrap()[0].completed);
+        assert!(reopened
+            .list("2026-10-04", "2026-10-04")
+            .unwrap()
+            .is_empty());
+        reopened.save(input("2026-10-05", None, 0)).unwrap();
+        assert!(legacy_folder.join("database.sqlite").exists());
+        assert!(!legacy.list("2026-10-01", "2026-10-01").unwrap()[0].completed);
+        drop(reopened);
+        let final_db = Database::open_documents(documents, &legacy_folder).unwrap();
+        assert_eq!(final_db.list("2026-10-05", "2026-10-05").unwrap().len(), 1);
+        drop(final_db);
+        drop(legacy);
         fs::remove_dir_all(root).unwrap();
     }
 }

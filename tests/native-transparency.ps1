@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)][int]$AppProcessId)
+﻿param([Parameter(Mandatory)][int]$AppProcessId)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms,System.Drawing
 Add-Type @'

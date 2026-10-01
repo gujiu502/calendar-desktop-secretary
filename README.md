@@ -2,7 +2,7 @@
 
 Windows 10 / 11 本地桌面日历。Tauri 2 + React / TypeScript + SQLite，半透明玻璃界面，默认优先在 Windows 显示器 2 打开。
 
-本次构建的安装包：`release/日签-0.1.1-setup.exe`；免安装启动程序：`release/日签.exe`（需要系统已有 WebView2 Runtime）。
+本次构建的安装包：`release/日签-0.1.2-setup.exe`；免安装启动程序：`release/日签.exe`（需要系统已有 WebView2 Runtime）。
 
 下载安装包与免安装程序：[GitHub Releases](https://github.com/gujiu502/calendar-desktop-secretary/releases/latest)。
 
@@ -12,6 +12,7 @@ Windows 10 / 11 本地桌面日历。Tauri 2 + React / TypeScript + SQLite，半
 - 点击月历日期打开快速添加；右上角 ＋ 或 Ctrl N 打开完整编辑器。两者复用同一保存流程。
 - 日签支持开始日期、可选结束日期、开始当天的可选时间、标题、内容、分类、优先级、编辑、删除和完成。结束日期包含当天，留空表示单日；跨月、跨年均可。
 - 日签覆盖的日期整格上色，月 / 年视图一致；选中状态保留分类颜色，全部完成后整格变灰。下方显示当天所有覆盖事项。Upcoming 显示 5 / 8 / 10 条未完成事项，包含进行中的跨日事项；已开始的事项在当天按全天显示。
+- 桌面窗口的日历和 Upcoming 各自滚动，事项较多时仍保留标题栏与底部状态栏。
 - 背景持续半透明，激活和未激活时保持一致。设置可调 35%–85% 不透明度，文字不随背景变淡。
 - 关闭按钮默认隐藏到托盘；托盘提供打开、快速添加、今天、设置与退出。
 - 开机启动默认关闭，在设置中启用。窗口默认不置顶。
@@ -37,7 +38,9 @@ npm run desktop:build
 
 ## 数据与备份
 
-桌面数据目录：`%APPDATA%/com.calendar.desktopsecretary/`。
+桌面数据目录：Windows 的「文档\日签」文件夹（通过系统已知目录定位，支持文档目录重定向）。输入的日期与内容每次保存时自动写入此处，无需另外导出。
+
+首次启动 v0.1.2 时，若文档中没有数据库，会通过 SQLite 在线快照迁移原 AppData 数据与设置，包含 WAL 中的记录；原文件保留。已有文档数据库时直接使用，不覆盖或重新导入旧副本。
 
 - `database.sqlite`：日签、设置和每块显示器的窗口位置。SQLite WAL + 参数化查询，Schema v2。旧版数据库自动增加结束日期列，保留日签与设置；旧 JSON 无结束日期时按单日导入。
 - `backup/YYYY-MM-DD.sqlite`：启动时及跨日后台检查时生成，每天至多一份，保留 30 份。使用 SQLite 在线备份 API，避免直接复制正在使用的 WAL 数据库。
@@ -70,7 +73,7 @@ npm run test:ui
 
 ## 实现依据
 
-基底来自 [Tauri 官方 create-tauri-app](https://github.com/tauri-apps/create-tauri-app)，复用官方托盘、自启动、单实例与文件选择能力，日期计算使用 date-fns，持久化使用 rusqlite。候选社区日历项目没有提供许可证，因此没有复制其实现。产品范围以 `docs/EngineeringSpec.md` 为参考，v0.1.1 按用户要求加入结束日期、整格上色与持续半透明；未加入 AI、云同步、账号或服务端。
+基底来自 [Tauri 官方 create-tauri-app](https://github.com/tauri-apps/create-tauri-app)，复用官方托盘、自启动、单实例与文件选择能力，日期计算使用 date-fns，持久化使用 rusqlite。候选社区日历项目没有提供许可证，因此没有复制其实现。产品范围以 `docs/EngineeringSpec.md` 为参考，v0.1.1 按用户要求加入结束日期、整格上色与持续半透明；v0.1.2 按用户要求改为自动保存到文档，并约束桌面内容滚动区域；未加入 AI、云同步、账号或服务端。
 
 系统材质的回退行为见 [Microsoft Acrylic 文档](https://learn.microsoft.com/en-us/windows/apps/design/style/acrylic)。本机实测模糊层导致背景接近实色，因此 v0.1.1 使用直接半透明背景，并通过切换背后窗口的红 / 蓝底色验证激活与未激活两种状态。
 

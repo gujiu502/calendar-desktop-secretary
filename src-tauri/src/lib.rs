@@ -157,8 +157,12 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let folder = app.path().app_data_dir()?;
-            app.manage(Database::open(folder).map_err(std::io::Error::other)?);
+            let documents = app.path().document_dir()?;
+            let legacy_folder = app.path().app_data_dir()?;
+            app.manage(
+                Database::open_documents(documents, &legacy_folder)
+                    .map_err(std::io::Error::other)?,
+            );
             app.manage(monitor::ActiveMonitor::default());
             desktop::setup_tray(app.handle())?;
             monitor::place(app.handle(), false).map_err(std::io::Error::other)?;

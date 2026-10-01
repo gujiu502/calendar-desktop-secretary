@@ -1,6 +1,6 @@
 [package]
 name = "calendar-desktop-secretary"
-version = "0.1.1"
+version = "0.1.2"
 description = "Local-first glass calendar and daily notes for Windows"
 authors = ["Calendar Desktop Secretary"]
 edition = "2021"
