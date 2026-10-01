@@ -1,7 +1,4 @@
-use crate::{
-    database::{DailyNote, Result},
-    settings::Settings,
-};
+use crate::database::{DailyNote, Result};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -13,30 +10,6 @@ pub fn show(app: &AppHandle) -> Result<()> {
     window.unminimize().map_err(|e| e.to_string())?;
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())
-}
-pub fn apply_effect(app: &AppHandle, settings: &Settings) -> Result<()> {
-    let window = app.get_webview_window("main").ok_or("主窗口不存在")?;
-    let effect = settings.effect.clone();
-    app.run_on_main_thread(move || {
-        let _ = window_vibrancy::clear_mica(&window);
-        let _ = window_vibrancy::clear_acrylic(&window);
-        let _ = window_vibrancy::clear_blur(&window);
-        if effect == "none" {
-            return;
-        }
-        if effect == "mica" && window_vibrancy::apply_mica(&window, Some(true)).is_ok() {
-            return;
-        }
-        if effect != "blur"
-            && window_vibrancy::apply_acrylic(&window, Some((24, 29, 34, 110))).is_ok()
-        {
-            return;
-        }
-        if let Err(e) = window_vibrancy::apply_blur(&window, Some((24, 29, 34, 110))) {
-            let _ = window.emit("app-error", format!("窗口模糊不可用，已使用透明背景：{e}"));
-        }
-    })
-    .map_err(|e| e.to_string())
 }
 pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "打开", true, None::<&str>)?;
@@ -90,13 +63,14 @@ pub fn csv(notes: &[DailyNote]) -> String {
         format!("\"{}\"", safe.replace('"', "\"\""))
     }
     let mut csv = String::from(
-        "\u{feff}id,date,time,title,content,category,priority,completed,created_at,updated_at\r\n",
+        "\u{feff}id,date,endDate,time,title,content,category,priority,completed,created_at,updated_at\r\n",
     );
     for n in notes {
         csv.push_str(
             &[
                 &n.id,
                 &n.date,
+                n.end_date.as_deref().unwrap_or(""),
                 n.time.as_deref().unwrap_or(""),
                 &n.title,
                 &n.content,
@@ -121,6 +95,7 @@ mod tests {
         let note = DailyNote {
             id: "id".into(),
             date: "2026-10-01".into(),
+            end_date: Some("2026-10-03".into()),
             time: None,
             title: "=SUM(1,2)".into(),
             content: "hello \"world\"\nline".into(),
@@ -133,5 +108,6 @@ mod tests {
         let csv = csv(&[note]);
         assert!(csv.contains("\"'=SUM(1,2)\""));
         assert!(csv.contains("hello \"\"world\"\"\nline"));
+        assert!(csv.contains("\"2026-10-01\",\"2026-10-03\""));
     }
 }

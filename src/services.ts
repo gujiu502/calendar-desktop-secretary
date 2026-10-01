@@ -13,14 +13,14 @@ export interface Settings {
   weekStart: 0 | 1; upcomingCount: 5 | 8 | 10;
 }
 export interface Monitor { id: string; name: string; number: number | null; primary: boolean; x: number; y: number; width: number; height: number; scale: number }
-export const defaults: Settings = { preferredDisplay: 'display2', manualMonitor: null, autoReturn: true, rememberPosition: true, rememberSize: true, closeToTray: true, showOnStart: true, autostart: false, opacity: .72, effect: 'acrylic', cornerRadius: 18, weekStart: 1, upcomingCount: 8 };
+export const defaults: Settings = { preferredDisplay: 'display2', manualMonitor: null, autoReturn: true, rememberPosition: true, rememberSize: true, closeToTray: true, showOnStart: true, autostart: false, opacity: .72, effect: 'none', cornerRadius: 18, weekStart: 1, upcomingCount: 8 };
 const storageKey = 'cds-browser-preview-v1';
-function browserNotes(): DailyNote[] { return JSON.parse(localStorage.getItem(storageKey) ?? '[]'); }
+function browserNotes(): DailyNote[] { return (JSON.parse(localStorage.getItem(storageKey) ?? '[]') as DailyNote[]).map(n => ({ ...n, endDate: n.endDate ?? null })); }
 function browserWrite(notes: DailyNote[]) { localStorage.setItem(storageKey, JSON.stringify(notes)); }
 export const api = {
   async list(start: string, end: string): Promise<DailyNote[]> {
     if (native) return invoke('list_notes', { start, end });
-    return browserNotes().filter(n => n.date >= start && n.date <= end).sort((a,b) => (a.time ?? '23:59').localeCompare(b.time ?? '23:59') || b.priority-a.priority);
+    return browserNotes().filter(n => n.date <= end && (n.endDate ?? n.date) >= start).sort((a,b) => a.date.localeCompare(b.date) || (a.time ?? '23:59').localeCompare(b.time ?? '23:59') || b.priority-a.priority);
   },
   async upcoming(limit: number): Promise<DailyNote[]> { return native ? invoke('upcoming_notes', { limit }) : upcomingFrom(browserNotes(), new Date(), limit); },
   async save(input: NoteInput): Promise<string> {
@@ -38,7 +38,10 @@ export const api = {
     browserWrite(browserNotes().map(n => n.id === id ? { ...n, completed, updatedAt: new Date().toISOString() } : n));
   },
   async remove(id: string): Promise<void> { if (native) return invoke('delete_note', { id }); browserWrite(browserNotes().filter(n => n.id !== id)); },
-  async settings(): Promise<Settings> { return native ? invoke('get_settings') : { ...defaults, ...JSON.parse(localStorage.getItem(`${storageKey}-settings`) ?? '{}') }; },
+  async settings(): Promise<Settings> {
+    const settings: Settings = native ? await invoke('get_settings') : { ...defaults, ...JSON.parse(localStorage.getItem(`${storageKey}-settings`) ?? '{}') };
+    return { ...settings, effect: 'none', opacity: Math.min(.85, Math.max(.35, settings.opacity)) };
+  },
   async saveSettings(settings: Settings): Promise<void> { if (native) return invoke('save_settings', { settings }); localStorage.setItem(`${storageKey}-settings`, JSON.stringify(settings)); },
   async monitors(): Promise<Monitor[]> { return native ? invoke('get_monitors') : []; },
   async backup(): Promise<string> { if (!native) throw new Error('自动 SQLite 备份在桌面应用中可用'); return invoke('backup_data'); },
@@ -47,7 +50,7 @@ export const api = {
     if (native) return invoke('export_data', { format });
     const notes = browserNotes();
     const field = (s: unknown) => { const text = String(s ?? ''); return `"${(/^[\s]*[=+@-]/.test(text) ? "'" : '') + text.replace(/"/g, '""')}"`; };
-    const keys: (keyof DailyNote)[] = ['id','date','time','title','content','category','priority','completed','createdAt','updatedAt'];
+    const keys: (keyof DailyNote)[] = ['id','date','endDate','time','title','content','category','priority','completed','createdAt','updatedAt'];
     const data = format === 'json' ? JSON.stringify(notes, null, 2) : '\ufeff' + keys.join(',') + '\r\n' + notes.map(n => keys.map(k => field(n[k])).join(',')).join('\r\n');
     const url = URL.createObjectURL(new Blob([data], { type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8' }));
     const link = document.createElement('a'); link.href = url; link.download = `日签-${dateKey(new Date())}.${format}`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); return link.download;

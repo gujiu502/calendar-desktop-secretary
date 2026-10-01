@@ -390,7 +390,7 @@ dependencies = [
 
 [[package]]
 name = "calendar-desktop-secretary"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "rusqlite",
@@ -402,7 +402,6 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-single-instance",
  "uuid",
- "window-vibrancy",
  "windows-sys 0.61.2",
 ]
 

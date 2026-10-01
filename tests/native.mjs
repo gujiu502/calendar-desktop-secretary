@@ -24,11 +24,17 @@ try {
     assert.ok(rect.x+rect.width/2>=target.x && rect.x+rect.width/2<target.x+target.width && rect.y+rect.height/2>=target.y && rect.y+rect.height/2<target.y+target.height,'First visible frame is on the preferred monitor');
   }
   const date=await page.evaluate(()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;});
-  const input={id:null,date,time:null,title:`原生验收-${Date.now()}`,content:'SQLite 持久化检查',category:'学习',priority:3};
+  const endDate=await page.evaluate(()=>{const d=new Date();d.setDate(d.getDate()+2);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;});
+  assert.equal(settings.effect,'none');
+  const alpha=await page.locator('.app-shell').evaluate(el=>Number(getComputedStyle(el).getPropertyValue('--panel-opacity')));
+  assert.ok(alpha>0 && alpha<=.85);
+  const input={id:null,date,endDate,time:null,title:`原生验收-${Date.now()}`,content:'SQLite 持久化检查',category:'学习',priority:3};
   await assert.rejects(()=>invoke('save_note',{input:{...input,date:'2026-02-30'}}));
+  await assert.rejects(()=>invoke('save_note',{input:{...input,endDate:'1900-01-01'}}));
   const id=await invoke('save_note',{input});ids.push(id);
   let rows=await invoke('list_notes',{start:date,end:date});
   assert.ok(rows.some(n=>n.id===id && !n.completed && n.time===null));
+  assert.ok((await invoke('list_notes',{start:endDate,end:endDate})).some(n=>n.id===id && n.endDate===endDate));
   await invoke('complete_note',{id,completed:true});
   assert.ok(!(await invoke('upcoming_notes',{limit:10})).some(n=>n.id===id));
   assert.equal((await invoke('list_notes',{start:date,end:date})).find(n=>n.id===id).completed,true);
@@ -36,9 +42,12 @@ try {
   await invoke('complete_note',{id,completed:false});
   await page.reload();
   await page.locator('.daily-list').getByText('已编辑的原生日签',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'编辑 已编辑的原生日签',exact:true}).click();
+  assert.equal(await page.getByLabel('结束日期',{exact:true}).inputValue(),endDate);
+  await page.keyboard.press('Escape');
   const backup=await invoke('backup_data');assert.ok(backup.endsWith('.sqlite'));
   await page.getByRole('button',{name:'新建日签',exact:true}).click();
-  assert.equal(await page.getByLabel('日期',{exact:true}).inputValue(),date);
+  assert.equal(await page.getByLabel('开始日期',{exact:true}).inputValue(),date);
   await page.getByLabel('标题',{exact:true}).fill('UI 到 Rust 到 SQLite');
   await page.getByRole('button',{name:'保存日签',exact:true}).click();
   await page.getByRole('dialog').waitFor({state:'hidden'});
@@ -56,7 +65,7 @@ try {
     await page.waitForFunction(()=>window.__TAURI_INTERNALS__.invoke('plugin:window|is_visible',{label:'main'}));
   }
   assert.deepEqual(errors,[]);
-  const report={result:'PASS',monitors,geometry,backup,checks:['native IPC validation','SQLite CRUD','reload persistence','Upcoming completion filter','UI→Rust→SQLite','online backup','close to tray',...(executable?['single-instance reopen']:[])]};
+  const report={result:'PASS',monitors,geometry,backup,checks:['native IPC validation','SQLite CRUD','inclusive end date query/edit/persistence','continuous translucency configuration','reload persistence','Upcoming completion filter','UI→Rust→SQLite','online backup','close to tray',...(executable?['single-instance reopen']:[])]};
   await writeFile('work/native-smoke.json',JSON.stringify(report,null,2));
   console.log(JSON.stringify(report));
 } finally {

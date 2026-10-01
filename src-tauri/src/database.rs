@@ -20,6 +20,8 @@ pub struct Database {
 pub struct DailyNote {
     pub id: String,
     pub date: String,
+    #[serde(default)]
+    pub end_date: Option<String>,
     pub time: Option<String>,
     pub title: String,
     pub content: String,
@@ -35,6 +37,8 @@ pub struct DailyNote {
 pub struct NoteInput {
     pub id: Option<String>,
     pub date: String,
+    #[serde(default)]
+    pub end_date: Option<String>,
     pub time: Option<String>,
     pub title: String,
     pub content: String,
@@ -56,6 +60,7 @@ pub fn validate_date(value: &str) -> Result<()> {
 
 fn validate_fields(
     date: &str,
+    end_date: &Option<String>,
     time: &Option<String>,
     title: &str,
     content: &str,
@@ -63,6 +68,12 @@ fn validate_fields(
     priority: u8,
 ) -> Result<()> {
     validate_date(date)?;
+    if let Some(end) = end_date {
+        validate_date(end)?;
+        if end.as_str() < date {
+            return Err("结束日期不能早于开始日期".into());
+        }
+    }
     if let Some(t) = time {
         if t.len() != 5 || NaiveTime::parse_from_str(t, "%H:%M").is_err() {
             return Err("时间无效".into());
@@ -84,6 +95,7 @@ fn read_note(row: &rusqlite::Row<'_>) -> rusqlite::Result<DailyNote> {
     Ok(DailyNote {
         id: row.get(0)?,
         date: row.get(1)?,
+        end_date: row.get(10)?,
         time: row.get(2)?,
         title: row.get(3)?,
         content: row.get(4)?,
@@ -95,7 +107,7 @@ fn read_note(row: &rusqlite::Row<'_>) -> rusqlite::Result<DailyNote> {
     })
 }
 
-const SELECT: &str = "SELECT id,date,time,title,content,category,priority,completed,created_at,updated_at FROM daily_notes";
+const SELECT: &str = "SELECT id,date,time,title,content,category,priority,completed,created_at,updated_at,end_date FROM daily_notes";
 
 impl Database {
     pub fn open(folder: PathBuf) -> Result<Self> {
@@ -111,9 +123,17 @@ impl Database {
     }
 
     fn migrate(conn: &Connection) -> Result<()> {
-        conn.execute_batch(
-            "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
-            CREATE TABLE IF NOT EXISTS daily_notes (
+        let version: u32 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        if version > 2 {
+            return Err("数据库版本较新，请使用更新版本的日签".into());
+        }
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
+            .map_err(|e| e.to_string())?;
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS daily_notes (
                 id TEXT PRIMARY KEY, date TEXT NOT NULL, time TEXT, title TEXT NOT NULL,
                 content TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '普通',
                 priority INTEGER NOT NULL DEFAULT 0 CHECK(priority BETWEEN 0 AND 3),
@@ -122,17 +142,32 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_daily_notes_date ON daily_notes(date);
             CREATE INDEX IF NOT EXISTS idx_daily_notes_datetime ON daily_notes(date,time);
             CREATE INDEX IF NOT EXISTS idx_daily_notes_completed ON daily_notes(completed);
-            CREATE TABLE IF NOT EXISTS preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-            PRAGMA user_version=1;",
+            CREATE TABLE IF NOT EXISTS preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
         )
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+        let has_end: bool = tx
+            .query_row(
+                "SELECT COUNT(*)>0 FROM pragma_table_info('daily_notes') WHERE name='end_date'",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if !has_end {
+            tx.execute_batch("ALTER TABLE daily_notes ADD COLUMN end_date TEXT CHECK(end_date IS NULL OR end_date>=date);").map_err(|e| e.to_string())?;
+        }
+        tx.execute_batch("PRAGMA user_version=2;")
+            .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())
     }
 
     pub fn list(&self, start: &str, end: &str) -> Result<Vec<DailyNote>> {
         validate_date(start)?;
         validate_date(end)?;
+        if end < start {
+            return Err("结束日期不能早于开始日期".into());
+        }
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
-        let mut stmt = conn.prepare(&format!("{SELECT} WHERE date BETWEEN ?1 AND ?2 ORDER BY date,COALESCE(time,'23:59'),priority DESC,created_at")).map_err(|e| e.to_string())?;
+        let mut stmt = conn.prepare(&format!("{SELECT} WHERE date<=?2 AND COALESCE(end_date,date)>=?1 ORDER BY date,COALESCE(time,'23:59'),priority DESC,created_at")).map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map(params![start, end], read_note)
             .map_err(|e| e.to_string())?;
@@ -146,7 +181,7 @@ impl Database {
             return Err("查询参数无效".into());
         }
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
-        let mut stmt = conn.prepare(&format!("{SELECT} WHERE completed=0 AND (date>?1 OR (date=?1 AND (time IS NULL OR time>=?2))) ORDER BY date,COALESCE(time,'23:59'),priority DESC,created_at LIMIT ?3")).map_err(|e| e.to_string())?;
+        let mut stmt = conn.prepare(&format!("{SELECT} WHERE completed=0 AND (COALESCE(end_date,date)>?1 OR (COALESCE(end_date,date)=?1 AND (date<?1 OR time IS NULL OR time>=?2))) ORDER BY MAX(date,?1),CASE WHEN date<?1 THEN '23:59' ELSE COALESCE(time,'23:59') END,priority DESC,created_at LIMIT ?3")).map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map(params![date, time, limit], read_note)
             .map_err(|e| e.to_string())?;
@@ -157,6 +192,7 @@ impl Database {
     pub fn save(&self, input: NoteInput) -> Result<String> {
         validate_fields(
             &input.date,
+            &input.end_date,
             &input.time,
             &input.title,
             &input.content,
@@ -166,7 +202,7 @@ impl Database {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let now = Utc::now().to_rfc3339();
         if let Some(id) = input.id {
-            let count = conn.execute("UPDATE daily_notes SET date=?2,time=?3,title=?4,content=?5,category=?6,priority=?7,updated_at=?8 WHERE id=?1", params![id,input.date,input.time,input.title.trim(),input.content,input.category,input.priority,now]).map_err(|e| e.to_string())?;
+            let count = conn.execute("UPDATE daily_notes SET date=?2,time=?3,title=?4,content=?5,category=?6,priority=?7,updated_at=?8,end_date=?9 WHERE id=?1", params![id,input.date,input.time,input.title.trim(),input.content,input.category,input.priority,now,input.end_date]).map_err(|e| e.to_string())?;
             if count == 0 {
                 return Err("日签已不存在，请刷新".into());
             }
@@ -174,7 +210,7 @@ impl Database {
         } else {
             let id = uuid::Uuid::new_v4().to_string();
             conn.execute(
-                "INSERT INTO daily_notes VALUES(?1,?2,?3,?4,?5,?6,?7,0,?8,?8)",
+                "INSERT INTO daily_notes(id,date,time,title,content,category,priority,completed,created_at,updated_at,end_date) VALUES(?1,?2,?3,?4,?5,?6,?7,0,?8,?8,?9)",
                 params![
                     id,
                     input.date,
@@ -183,7 +219,8 @@ impl Database {
                     input.content,
                     input.category,
                     input.priority,
-                    now
+                    now,
+                    input.end_date
                 ],
             )
             .map_err(|e| e.to_string())?;
@@ -258,6 +295,7 @@ impl Database {
         for n in &notes {
             validate_fields(
                 &n.date,
+                &n.end_date,
                 &n.time,
                 &n.title,
                 &n.content,
@@ -279,7 +317,7 @@ impl Database {
         for n in notes {
             count += tx
                 .execute(
-                    "INSERT OR IGNORE INTO daily_notes VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+                    "INSERT OR IGNORE INTO daily_notes(id,date,time,title,content,category,priority,completed,created_at,updated_at,end_date) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
                     params![
                         n.id,
                         n.date,
@@ -290,7 +328,8 @@ impl Database {
                         n.priority,
                         n.completed,
                         n.created_at,
-                        n.updated_at
+                        n.updated_at,
+                        n.end_date
                     ],
                 )
                 .map_err(|e| e.to_string())?;
@@ -315,6 +354,7 @@ mod tests {
         NoteInput {
             id: None,
             date: date.into(),
+            end_date: None,
             time: time.map(str::to_string),
             title: "作业".into(),
             content: String::new(),
@@ -371,6 +411,62 @@ mod tests {
         assert_eq!(db.list("1900-01-01", "9999-12-31").unwrap().len(), 1);
         drop(snapshot);
         drop(db);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn ranges_migrate_v1_preserve_data_and_import_legacy_json() {
+        let root = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
+        fs::create_dir_all(&root).unwrap();
+        let conn = Connection::open(root.join("database.sqlite")).unwrap();
+        conn.execute_batch("CREATE TABLE daily_notes(id TEXT PRIMARY KEY,date TEXT NOT NULL,time TEXT,title TEXT NOT NULL,content TEXT NOT NULL,category TEXT NOT NULL,priority INTEGER NOT NULL,completed INTEGER NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL); PRAGMA user_version=1;").unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO daily_notes VALUES(?1,'2026-09-30','09:00','旧日签','','学习',0,1,?2,?2)",
+            params![id, now],
+        )
+        .unwrap();
+        drop(conn);
+        let db = Database::open(root.clone()).unwrap();
+        let old = db.list("2026-09-30", "2026-09-30").unwrap().remove(0);
+        assert_eq!(old.id, id);
+        assert!(old.completed && old.end_date.is_none());
+        let mut span = input("2026-09-30", Some("09:00"), 0);
+        span.end_date = Some("2026-10-02".into());
+        let range_id = db.save(span).unwrap();
+        assert_eq!(db.list("2026-10-01", "2026-10-01").unwrap()[0].id, range_id);
+        assert_eq!(
+            db.upcoming("2026-10-02", "23:59", 8).unwrap()[0].id,
+            range_id
+        );
+        assert!(db.upcoming("2026-10-03", "00:00", 8).unwrap().is_empty());
+        let export = root.join("legacy.json");
+        let mut legacy = serde_json::to_value(&old).unwrap();
+        legacy.as_object_mut().unwrap().remove("endDate");
+        legacy["id"] = serde_json::json!(uuid::Uuid::new_v4().to_string());
+        fs::write(&export, serde_json::to_vec(&vec![legacy]).unwrap()).unwrap();
+        assert_eq!(db.import(&export).unwrap(), 1);
+        let mut bad = input("2026-10-01", None, 0);
+        bad.end_date = Some("2026-09-30".into());
+        assert!(db.save(bad).is_err());
+        let rows = db.list("1900-01-01", "9999-12-31").unwrap();
+        let mut json = serde_json::to_value(&rows).unwrap();
+        json[0]["endDate"] = serde_json::json!("2026-02-30");
+        fs::write(&export, serde_json::to_vec(&json).unwrap()).unwrap();
+        assert!(db.import(&export).is_err());
+        assert_eq!(
+            db.list("1900-01-01", "9999-12-31").unwrap().len(),
+            rows.len()
+        );
+        drop(db);
+        let reopened = Database::open(root.clone()).unwrap();
+        assert_eq!(
+            reopened.list("2026-10-02", "2026-10-02").unwrap()[0]
+                .end_date
+                .as_deref(),
+            Some("2026-10-02")
+        );
+        drop(reopened);
         fs::remove_dir_all(root).unwrap();
     }
 }

@@ -45,6 +45,7 @@ try {
   Write-Output ($startup | ConvertTo-Json -Compress -Depth 5)
   node (Join-Path $PSScriptRoot 'native.mjs') $Executable
   if ($LASTEXITCODE -ne 0) { throw 'Native integration checks failed' }
+  & (Join-Path $PSScriptRoot 'native-transparency.ps1') -AppProcessId $probeProcess.Id
 } finally {
   if (-not $probeProcess.HasExited) { Stop-Process -Id $probeProcess.Id }
   [void][CalendarWindowProbe]::SetThreadDpiAwarenessContext($previousDpi)

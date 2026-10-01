@@ -31,7 +31,7 @@ impl Default for Settings {
             show_on_start: true,
             autostart: false,
             opacity: 0.72,
-            effect: "acrylic".into(),
+            effect: "none".into(),
             corner_radius: 18,
             week_start: 1,
             upcoming_count: 8,

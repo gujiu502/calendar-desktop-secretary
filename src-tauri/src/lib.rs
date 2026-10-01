@@ -38,6 +38,8 @@ fn delete_note(db: State<Database>, id: String) -> Result<()> {
 #[tauri::command]
 fn get_settings(app: AppHandle, db: State<Database>) -> Result<Settings> {
     let mut settings = db.get_preference::<Settings>("settings")?;
+    settings.effect = "none".into();
+    settings.opacity = settings.opacity.clamp(0.35, 0.85);
     settings.autostart = app.autolaunch().is_enabled().map_err(|e| e.to_string())?;
     Ok(settings)
 }
@@ -62,7 +64,6 @@ fn save_settings(app: AppHandle, db: State<Database>, settings: Settings) -> Res
         };
         return Err(e);
     }
-    desktop::apply_effect(&app, &settings)?;
     if old.preferred_display != settings.preferred_display
         || old.manual_monitor != settings.manual_monitor
     {
@@ -159,13 +160,8 @@ pub fn run() {
             let folder = app.path().app_data_dir()?;
             app.manage(Database::open(folder).map_err(std::io::Error::other)?);
             app.manage(monitor::ActiveMonitor::default());
-            let settings = app
-                .state::<Database>()
-                .get_preference::<Settings>("settings")
-                .map_err(std::io::Error::other)?;
             desktop::setup_tray(app.handle())?;
             monitor::place(app.handle(), false).map_err(std::io::Error::other)?;
-            desktop::apply_effect(app.handle(), &settings).map_err(std::io::Error::other)?;
             monitor::start(app.handle()).map_err(std::io::Error::other)?;
             Ok(())
         })
