@@ -42,6 +42,7 @@ try {
   await invoke('complete_note',{id,completed:false});
   await page.reload();
   await page.locator('.daily-list').getByText('已编辑的原生日签',{exact:true}).waitFor();
+  assert.ok((await page.getByRole('button',{name:date,exact:true}).locator('.cell-note').allTextContents()).includes('已编辑的原生日签'));
   await page.getByRole('button',{name:'编辑 已编辑的原生日签',exact:true}).click();
   assert.equal(await page.getByLabel('结束日期',{exact:true}).inputValue(),endDate);
   await page.keyboard.press('Escape');

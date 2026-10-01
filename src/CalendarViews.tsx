@@ -19,7 +19,7 @@ export default function CalendarViews(p: Props) {
     return <section className="mini-month" key={i}>
       <button className="mini-title" onClick={() => p.month(month)}>{i + 1}<span>月</span></button>
       <div className="mini-grid">{weekdays(p.weekStart).map((d, i) => <span className="mini-week" key={i}>{d}</span>)}
-        {miniDays(month, p.weekStart).map(day => { const key = dateKey(day), notes = p.grouped.get(key) ?? []; return isSameMonth(day, month) ? <button key={key} aria-label={key} onClick={() => p.select(key)} className={`${dateTint(notes)} ${key === p.today ? 'mini-today' : ''} ${key === p.selected ? 'mini-selected' : ''}`}><span>{day.getDate()}</span><Dots notes={notes} /></button> : <span key={key} />; })}
+        {miniDays(month, p.weekStart).map(day => { const key = dateKey(day), notes = p.grouped.get(key) ?? []; return isSameMonth(day, month) ? <button key={key} aria-label={key} title={notes.map(n => n.title).join("\n") || undefined} aria-description={notes.map(n => n.title).join("；") || undefined} onClick={() => p.select(key)} className={`${dateTint(notes)} ${key === p.today ? 'mini-today' : ''} ${key === p.selected ? 'mini-selected' : ''}`}><span>{day.getDate()}</span><Dots notes={notes} /></button> : <span key={key} />; })}
       </div>
     </section>;
   })}</div>;
@@ -33,8 +33,8 @@ export default function CalendarViews(p: Props) {
   return <div className="month-view" aria-label="月视图"><div className="weekdays">{weekdays(p.weekStart).map((day, i) => <span className={i > 4 ? 'weekend' : ''} key={day}>{day}</span>)}</div><div className="month-grid">
     {monthDays(p.anchor, p.weekStart).map(day => {
       const key = dateKey(day), notes = p.grouped.get(key) ?? [];
-      return <button aria-label={key} disabled={day.getFullYear() < 1900 || day.getFullYear() > 9999} aria-pressed={key === p.selected} onClick={() => p.select(key, true)} key={key} className={`calendar-cell ${!isSameMonth(day, p.anchor) ? 'outside' : ''} ${key === p.today ? 'today' : ''} ${key === p.selected ? 'selected' : ''} ${dateTint(notes)}`}>
-        <span className="day-number">{format(day, 'd')}</span>{key === p.today && <span className="today-label">今天</span>}<Dots notes={notes} />{notes.length > 0 && <span className="cell-count">{notes.length}</span>}
+      return <button aria-label={key} title={notes.map(n => n.title).join("\n") || undefined} aria-description={notes.map(n => n.title).join("；") || undefined} disabled={day.getFullYear() < 1900 || day.getFullYear() > 9999} aria-pressed={key === p.selected} onClick={() => p.select(key, true)} key={key} className={`calendar-cell ${!isSameMonth(day, p.anchor) ? 'outside' : ''} ${key === p.today ? 'today' : ''} ${key === p.selected ? 'selected' : ''} ${dateTint(notes)}`}>
+        <span className="day-number">{format(day, 'd')}</span>{key === p.today && <span className="today-label">今天</span>}<span className="cell-notes">{notes.slice(0, 2).map(note => <span key={note.id} className={`cell-note ${note.completed ? 'completed' : ''}`}>{note.title}</span>)}</span>{notes.length > 2 && <span className="cell-count">+{notes.length - 2}</span>}
       </button>;
     })}
   </div><div className="calendar-legend">{categories.map(c => <span key={c}><i className={`dot ${categoryClass[c]}`} />{c}</span>)}<span className="legend-hint">点击日期，记下一件事</span></div></div>;

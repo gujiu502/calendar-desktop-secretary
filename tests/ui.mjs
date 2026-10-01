@@ -29,6 +29,7 @@ try {
   await page.getByRole('dialog').waitFor({state:'hidden'});
   await page.reload();
   await page.locator('.daily-list').getByText('已编辑的日签',{exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:today,exact:true}).locator('.cell-note').innerText(),'已编辑的日签');
   const startCell=page.getByRole('button',{name:today,exact:true});
   assert.ok(await startCell.evaluate(el=>el.classList.contains('selected') && el.classList.contains('tint-purple')));
   await page.waitForFunction(key=>getComputedStyle(document.querySelector(`button[aria-label="${key}"]`)).backgroundColor==='rgba(139, 107, 188, 0.44)',today);
@@ -39,6 +40,7 @@ try {
   await page.locator('.daily-list').getByText('已编辑的日签',{exact:true}).waitFor();
   await page.waitForFunction(({key,color})=>getComputedStyle(document.querySelector(`button[aria-label="${key}"]`)).backgroundColor===color,{key:tomorrow,color:tinted});
   assert.equal(await page.getByRole('button',{name:tomorrow,exact:true}).evaluate(el=>getComputedStyle(el).backgroundColor),tinted);
+  assert.equal(await page.getByRole('button',{name:tomorrow,exact:true}).locator('.cell-note').innerText(),'已编辑的日签');
   await page.getByRole('button',{name:'编辑 已编辑的日签',exact:true}).click();
   assert.equal(await page.getByLabel('结束日期',{exact:true}).inputValue(),tomorrow);
   await page.keyboard.press('Escape');
@@ -46,6 +48,7 @@ try {
   await page.getByRole('button',{name:'取消完成 已编辑的日签',exact:true}).waitFor();
   assert.equal(await page.locator('.upcoming-item').filter({hasText:'已编辑的日签'}).count(),0);
   assert.ok(await page.getByRole('button',{name:tomorrow,exact:true}).evaluate(el=>el.classList.contains('tint-gray')));
+  assert.equal(await page.getByRole('button',{name:tomorrow,exact:true}).locator('.cell-note.completed').innerText(),'已编辑的日签');
   await page.getByRole('button',{name:'取消完成 已编辑的日签',exact:true}).click();
   await page.getByRole('button',{name:'日',exact:true}).click();
   await page.getByLabel('日视图',{exact:true}).waitFor();
@@ -74,9 +77,15 @@ try {
   await page.screenshot({path:'work/screenshots/empty.png',fullPage:true});
   // Test fixtures only: seed the isolated browser context for a populated visual check.
   await page.evaluate(()=>{const d=new Date(), key=o=>{const x=new Date(d.getFullYear(),d.getMonth(),d.getDate()+o);return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;}; const titles=['整理这一周的想法','微积分 · Chapter 3','ESP32 WiFi 测试','电子学实验报告','给自己留一点时间','完成 Project 初稿'];localStorage.setItem('cds-browser-preview-v1',JSON.stringify(titles.map((title,i)=>({id:crypto.randomUUID(),date:key(i<2?0:i-1),endDate:i===1?key(2):null,time:i===0?null:'20:30',title,content:i===1?'完成习题 3.1 — 3.4，复习积分换元法。':'',category:['普通','学习','学习','重要','生活','普通'][i],priority:i===3?3:0,completed:false,createdAt:d.toISOString(),updatedAt:d.toISOString()}))));});
+  await page.evaluate(()=>{const notes=JSON.parse(localStorage.getItem('cds-browser-preview-v1'));notes[1].title='很长的日签原因'.repeat(20);notes.push({...notes[0],id:crypto.randomUUID(),title:'第三条日签'});localStorage.setItem('cds-browser-preview-v1',JSON.stringify(notes));});
   await page.reload();
   await page.locator('.note-row').first().waitFor();
   await page.waitForFunction(key=>getComputedStyle(document.querySelector(`button[aria-label="${key}"]`)).backgroundColor==='rgba(139, 107, 188, 0.44)',today);
+  const populatedCell=page.getByRole('button',{name:today,exact:true});
+  assert.equal(await populatedCell.locator('.cell-note').count(),2);
+  assert.equal(await populatedCell.locator('.cell-count').innerText(),'+1');
+  assert.ok((await populatedCell.getAttribute('title')).includes('第三条日签'));
+  assert.ok(await populatedCell.locator('.cell-note').filter({hasText:'很长的日签原因'}).evaluate(el=>el.scrollWidth>el.clientWidth && getComputedStyle(el).textOverflow==='ellipsis'));
   await page.screenshot({path:'work/screenshots/month.png',fullPage:true});
   await page.getByRole('button',{name:'年',exact:true}).click();
   await page.screenshot({path:'work/screenshots/year.png',fullPage:true});
@@ -88,5 +97,5 @@ try {
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await page.screenshot({path:'work/screenshots/small-window.png',fullPage:true});
   assert.deepEqual(errors,[]);
-  console.log('PASS: quick/full editor, inclusive end dates, persistent full-cell colors in month/year, persistence, edit/complete/delete, day/month/year, settings, shortcuts, minimum width, screenshots.');
+  console.log('PASS: quick/full editor, inclusive end dates, persistent full-cell colors in month/year, visible date-cell titles/ranges/completion/overflow, persistence, edit/complete/delete, day/month/year, settings, shortcuts, minimum width, screenshots.');
 } finally { await browser.close(); }
