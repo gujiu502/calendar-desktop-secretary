@@ -263,11 +263,11 @@ pub fn start(app: &AppHandle) -> Result<()> {
             }
         };
         loop {
-            // Events drive window updates; the long timeout is only for daily backups.
+            // Events drive window updates; the timeout also handles backups and expiry while hidden.
             match rx.recv_timeout(if pending {
                 Duration::from_millis(650)
             } else {
-                Duration::from_secs(3600)
+                Duration::from_secs(60)
             }) {
                 Ok(change) => {
                     pending = true;
@@ -293,6 +293,15 @@ pub fn start(app: &AppHandle) -> Result<()> {
                 topology = false;
             }
             let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+            match app.state::<Database>().prune_expired(&today) {
+                Ok(count) if count > 0 => {
+                    let _ = app.emit("notes-changed", ());
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    let _ = app.emit("app-error", format!("自动清理失败：{e}"));
+                }
+            }
             if last_backup != today {
                 match app.state::<Database>().backup() {
                     Ok(_) => last_backup = today,

@@ -279,6 +279,44 @@ impl Database {
         Ok(())
     }
 
+    pub fn prune_expired(&self, today: &str) -> Result<usize> {
+        validate_date(today)?;
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let count: usize = conn
+            .query_row(
+                "SELECT COUNT(*) FROM daily_notes WHERE COALESCE(end_date,date)<?1",
+                [today],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if count == 0 {
+            return Ok(0);
+        }
+        // Keep a fresh snapshot even if today's daily backup predates newly imported notes.
+        // ponytail: cleanup snapshots are retained; add bounded retention if disk usage warrants it.
+        let dir = self.folder.join("backup").join("before-cleanup");
+        fs::create_dir_all(&dir).map_err(|e| format!("清理前备份失败，日签已保留：{e}"))?;
+        let destination = dir.join(format!(
+            "{}-{}.sqlite",
+            Utc::now().format("%Y%m%dT%H%M%S%.3fZ"),
+            uuid::Uuid::new_v4()
+        ));
+        let snapshot = destination.with_extension("tmp");
+        let result = conn
+            .backup("main", &snapshot, None)
+            .map_err(|e| e.to_string())
+            .and_then(|_| crate::files::publish(&snapshot, &destination));
+        if let Err(error) = result {
+            let _ = fs::remove_file(&snapshot);
+            return Err(format!("清理前备份失败，日签已保留：{error}"));
+        }
+        conn.execute(
+            "DELETE FROM daily_notes WHERE COALESCE(end_date,date)<?1",
+            [today],
+        )
+        .map_err(|e| e.to_string())
+    }
+
     pub fn backup(&self) -> Result<PathBuf> {
         let dir = self.folder.join("backup");
         fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -539,6 +577,79 @@ mod tests {
         assert_eq!(final_db.list("2026-10-05", "2026-10-05").unwrap().len(), 1);
         drop(final_db);
         drop(legacy);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn expiry_cleanup_preserves_today_ranges_and_requires_fresh_backup() {
+        let root = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
+        let db = Database::open(root.clone()).unwrap();
+        let expired = db.save(input("2026-09-30", None, 0)).unwrap();
+        db.backup().unwrap();
+        let expired_completed = db.save(input("2026-10-01", None, 0)).unwrap();
+        db.complete(&expired_completed, true).unwrap();
+        let mut range = input("2026-09-30", None, 0);
+        range.end_date = Some("2026-10-01".into());
+        db.save(range).unwrap();
+        let today = db.save(input("2026-10-02", Some("00:00"), 0)).unwrap();
+        let mut ongoing = input("2026-09-30", Some("09:00"), 0);
+        ongoing.end_date = Some("2026-10-02".into());
+        let ongoing_id = db.save(ongoing).unwrap();
+        let future = db.save(input("2026-10-03", None, 0)).unwrap();
+        db.complete(&future, true).unwrap();
+        db.put_preference("settings", &crate::settings::Settings::default())
+            .unwrap();
+        assert!(db.prune_expired("2026-02-30").is_err());
+        // A failed snapshot must block deletion, including unfinished expired notes.
+        fs::write(
+            root.join("backup").join("before-cleanup"),
+            "blocked directory",
+        )
+        .unwrap();
+        assert!(db.prune_expired("2026-10-02").is_err());
+        assert_eq!(db.list("2026-09-01", "2026-10-31").unwrap().len(), 6);
+        fs::remove_file(root.join("backup").join("before-cleanup")).unwrap();
+        assert_eq!(db.prune_expired("2026-10-02").unwrap(), 3);
+        let rows = db.list("2026-09-01", "2026-10-31").unwrap();
+        assert_eq!(rows.len(), 3);
+        for id in [&today, &ongoing_id, &future] {
+            assert!(rows.iter().any(|n| &n.id == id));
+        }
+        assert!(!rows
+            .iter()
+            .any(|n| n.id == expired || n.id == expired_completed));
+        let snapshots = fs::read_dir(root.join("backup").join("before-cleanup"))
+            .unwrap()
+            .collect::<std::io::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(snapshots.len(), 1);
+        let snapshot = Connection::open(snapshots[0].path()).unwrap();
+        assert_eq!(
+            snapshot
+                .query_row("SELECT COUNT(*) FROM daily_notes", [], |r| r
+                    .get::<_, usize>(0))
+                .unwrap(),
+            6
+        );
+        drop(snapshot);
+        assert_eq!(db.prune_expired("2026-10-02").unwrap(), 0);
+        assert_eq!(
+            fs::read_dir(root.join("backup").join("before-cleanup"))
+                .unwrap()
+                .count(),
+            1
+        );
+        assert_eq!(db.prune_expired("2026-10-03").unwrap(), 2);
+        assert_eq!(db.list("2026-09-01", "2026-10-31").unwrap()[0].id, future);
+        assert_eq!(
+            db.get_preference::<crate::settings::Settings>("settings")
+                .unwrap()
+                .preferred_display,
+            "display2"
+        );
+        drop(db);
+        let reopened = Database::open(root.clone()).unwrap();
+        assert_eq!(reopened.list("2026-09-01", "2026-10-31").unwrap().len(), 1);
+        drop(reopened);
         fs::remove_dir_all(root).unwrap();
     }
 }

@@ -12,6 +12,7 @@ use tauri_plugin_dialog::DialogExt;
 
 #[tauri::command]
 fn list_notes(db: State<Database>, start: String, end: String) -> Result<Vec<DailyNote>> {
+    db.prune_expired(&chrono::Local::now().format("%Y-%m-%d").to_string())?;
     db.list(&start, &end)
 }
 #[tauri::command]

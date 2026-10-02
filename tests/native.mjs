@@ -1,5 +1,6 @@
 import { chromium } from 'playwright';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
+import { dirname, join } from 'node:path';
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 
@@ -69,7 +70,29 @@ try {
     await page.waitForFunction(()=>window.__TAURI_INTERNALS__.invoke('plugin:window|is_visible',{label:'main'}));
   }
   assert.deepEqual(errors,[]);
-  const report={result:'PASS',monitors,geometry,backup,checks:['native IPC validation','SQLite CRUD','inclusive end date query/edit/persistence','continuous translucency configuration','reload persistence','Upcoming completion filter','UI→Rust→SQLite','Documents automatic storage','online backup','close to tray',...(executable?['single-instance reopen']:[])]};
+  const previousDate=await page.evaluate(()=>{const d=new Date();d.setDate(d.getDate()-1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;});
+  const previousStart=await page.evaluate(()=>{const d=new Date();d.setDate(d.getDate()-2);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;});
+  const timedToday=await invoke('save_note',{input:{...input,endDate:null,time:'00:00',title:'当天时间已过仍保留'}});ids.push(timedToday);
+  const ongoing=await invoke('save_note',{input:{...input,date:previousDate,endDate:date,title:'结束当天仍保留'}});ids.push(ongoing);
+  await invoke('plugin:window|close',{label:'main'});
+  await page.waitForFunction(async()=>!(await window.__TAURI_INTERNALS__.invoke('plugin:window|is_visible',{label:'main'})));
+  const expired=await invoke('save_note',{input:{...input,date:previousDate,endDate:null,title:'过期自动清理验收'}});ids.push(expired);
+  const expiredRange=await invoke('save_note',{input:{...input,date:previousStart,endDate:previousDate,title:'过期区间自动清理验收'}});ids.push(expiredRange);
+  const rawExists=id=>execFileSync('py',['-3','-c',"import sqlite3,sys;from pathlib import Path;c=sqlite3.connect(Path(sys.argv[1]).as_uri()+'?mode=ro',uri=True);print(c.execute('SELECT COUNT(*) FROM daily_notes WHERE id=?',(sys.argv[2],)).fetchone()[0]);c.close()",join(dirname(dirname(backup)),'database.sqlite'),id],{encoding:'utf8',windowsHide:true}).trim()==='1';
+  const cleanupStarted=Date.now();
+  while(rawExists(expired)||rawExists(expiredRange)) {
+    assert.ok(Date.now()-cleanupStarted<75000,'Expired notes are deleted automatically while hidden');
+    await new Promise(resolve=>setTimeout(resolve,1000));
+  }
+  assert.ok(rawExists(timedToday),'Today is retained even when its time has passed');
+  assert.ok(rawExists(ongoing),'Inclusive end date is retained');
+  if (executable) {
+    const second=spawn(executable,[],{windowsHide:true,stdio:'ignore'});
+    await new Promise((resolve,reject)=>{second.once('error',reject);second.once('exit',resolve);});
+    await page.waitForFunction(()=>window.__TAURI_INTERNALS__.invoke('plugin:window|is_visible',{label:'main'}));
+  }
+  assert.deepEqual(errors,[]);
+  const report={result:'PASS',monitors,geometry,backup,checks:['native IPC validation','SQLite CRUD','inclusive end date query/edit/persistence','continuous translucency configuration','reload persistence','Upcoming completion filter','UI→Rust→SQLite','Documents automatic storage','expired notes deleted automatically while hidden','today and inclusive end date retained','online backup','close to tray',...(executable?['single-instance reopen']:[])]};
   await writeFile('work/native-smoke.json',JSON.stringify(report,null,2));
   console.log(JSON.stringify(report));
 } finally {

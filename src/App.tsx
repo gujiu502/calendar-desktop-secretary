@@ -50,6 +50,7 @@ export default function App() {
       try { const fn = await onNativeEvent(name, callback); if (active) unlisteners.push(fn); else fn(); } catch (e) { if (active) setError(message(e)); }
     };
     void bind<string>('app-error', value => setError(value));
+    void bind('notes-changed', () => { void actions.current.refresh().catch(e => setError(message(e))); });
     void bind<string>('tray-action', value => { if (value === 'today') actions.current.today(); else if (value === 'add') actions.current.add(); else if (value === 'settings') actions.current.settings(); });
     const tick = () => { setNow(new Date()); void actions.current.refresh().catch(e => setError(message(e))); };
     const visibility = () => { if (document.visibilityState === 'visible') tick(); };
